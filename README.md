@@ -11,7 +11,7 @@ Microsoft Defender XDR
 
 Upon trigger, the playbook connects to Microsoft Teams Shifts to identify the currently active employees on shift. It then extracts each user's account ID and sends a Teams direct message notifying all on-shift employees as well as the team manager about the incident.
 
-![playbook]("./Screenshot 2026-06-13 194126.png")
+![playbook](./Screenshot_2026_06_13_194126.png)
 
 📄 For full configuration details, see [Configuration](./TeamMessage_FOR_HighSeverityIncidents)
 
