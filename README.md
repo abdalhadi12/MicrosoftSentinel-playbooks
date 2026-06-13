@@ -13,5 +13,5 @@ Upon trigger, the playbook connects to Microsoft Teams Shifts to identify the cu
 
 
 
-📄 For full configuration details, see [Configuration Guide](./TeamMessage_FOR_HighSeverityIncidents)
+📄 For full configuration details, see [Configuration](./TeamMessage_FOR_HighSeverityIncidents)
 
