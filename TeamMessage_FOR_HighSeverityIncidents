@@ -1,0 +1,135 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "Microsoft_Sentinel_incident": {
+                "type": "ApiConnectionWebhook",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                        }
+                    },
+                    "body": {
+                        "callback_url": "@{listCallbackUrl()}"
+                    },
+                    "path": "/incident-creation"
+                }
+            }
+        },
+        "actions": {
+            "List_all_Shifts_in_a_team": {
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['shifts']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/v1.0/teams/@{encodeURIComponent('')}/schedule/shifts",
+                    "queries": {
+                        "startTime": "@addHours(utcNow(),-24)",
+                        "endTime": "@addHours(utcNow(),24)"
+                    }
+                },
+                "runAfter": {}
+            },
+            "Filter_array": {
+                "type": "Query",
+                "inputs": {
+                    "from": "@body('List_all_Shifts_in_a_team')?['value']",
+                    "where": "@and(\n  lessOrEquals(item()?['sharedShift']?['startDateTime'], utcNow()),\n  greaterOrEquals(item()?['sharedShift']?['endDateTime'], utcNow())\n)"
+                },
+                "runAfter": {
+                    "List_all_Shifts_in_a_team": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "For_each_1": {
+                "type": "Foreach",
+                "foreach": "@outputs('Filter_array')['body']",
+                "actions": {
+                    "Post_message_in_a_chat_or_channel": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['teams']['connectionId']"
+                                }
+                            },
+                            "method": "post",
+                            "path": "/beta/teams/conversation/message/poster/Flow bot/location/@{encodeURIComponent('Chat with Flow bot')}"
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Filter_array": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Post_message_in_a_chat_or_channel_1": {
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['teams-1']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "path": "/beta/teams/conversation/message/poster/Flow bot/location/@{encodeURIComponent('Chat with Flow bot')}"
+                },
+                "runAfter": {
+                    "For_each_1": [
+                        "Succeeded"
+                    ]
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "azuresentinel": {
+                    "id": "",
+                    "connectionId": "",
+                    "connectionName": "azuresentinel-TeamsMessage_For_Defender_Incident",
+                    "connectionProperties": {
+                        "authentication": {
+                            "type": "ManagedServiceIdentity"
+                        }
+                    }
+                },
+                "shifts": {
+                    "id": "",
+                    "connectionId": "",
+                    "connectionName": "shifts",
+                    "connectionProperties": {}
+                },
+                "teams": {
+                    "id": "",
+                    "connectionId": "",
+                    "connectionName": "teams-2",
+                    "connectionProperties": {}
+                },
+                "teams-1": {
+                    "id": "",
+                    "connectionId": "",
+                    "connectionName": "teams-2",
+                    "connectionProperties": {}
+                }
+            }
+        }
+    }
+}
