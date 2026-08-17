@@ -20,4 +20,4 @@ A Microsoft Sentinel playbook that triggers automatically when incident for emai
 
 the playbook extracts the email network message Id and the recipient address name and then use specific Microsoft Graph API "https://graph.microsoft.com/v1.0/security/collaboration/analyzedEmails/remediate" to apply soft deletion for the email message.
 
-📄 For full configuration details, see [Configuration](./TeamMessage_FOR_HighSeverityIncidents)
+📄 For full configuration details, see [Configuration](./Block_Phishing_Domain)
