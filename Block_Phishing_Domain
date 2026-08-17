@@ -1,0 +1,182 @@
+{
+    "definition": {
+        "metadata": {
+            "notes": {}
+        },
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "Microsoft_Sentinel_incident": {
+                "type": "ApiConnectionWebhook",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                        }
+                    },
+                    "body": {
+                        "callback_url": "@{listCallbackUrl()}"
+                    },
+                    "path": "/incident-creation"
+                }
+            }
+        },
+        "actions": {
+            "Entities_-_Get_Accounts": {
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuresentinel-1']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "body": "@triggerBody()?['object']?['properties']?['relatedEntities']",
+                    "path": "/entities/account"
+                },
+                "runAfter": {}
+            },
+            "For_each_2": {
+                "type": "Foreach",
+                "foreach": "@body('Entities_-_Get_Accounts')?['Accounts']",
+                "actions": {
+                    "Run_query_and_list_results_V2_1": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['azuremonitorlogs-1']['connectionId']"
+                                }
+                            },
+                            "method": "post",
+                            "body": {
+                                "query": "EmailEvents\n    |  where SenderFromDomain==\"@{items('For_each_2')?['Name']}\"\n    |  project RecipientEmailAddress, NetworkMessageId",
+                                "timerangetype": "relative",
+                                "timerange": {
+                                    "relativeTimeRange": "Last 4 hours"
+                                }
+                            },
+                            "path": "/queryDataV2",
+                            "queries": {
+                                "subscriptions": "",
+                                "resourcegroups": "",
+                                "resourcetype": "Log Analytics Workspace",
+                                "resourcename": ""
+                            }
+                        }
+                    },
+                    "For_each_3": {
+                        "type": "Foreach",
+                        "foreach": "@body('Run_query_and_list_results_V2_1')?['value']",
+                        "actions": {
+                            "HTTP-copy": {
+                                "type": "Http",
+                                "inputs": {
+                                    "uri": "https://graph.microsoft.com/v1.0/security/collaboration/analyzedEmails/remediate",
+                                    "method": "POST",
+                                    "headers": {
+                                        "Content-Type": "application/json"
+                                    },
+                                    "body": {
+                                        "displayName": "Auto-remediate phishing",
+                                        "description": "Remediated via Sentinel playbook",
+                                        "severity": "medium",
+                                        "action": "softDelete",
+                                        "remediateSendersCopy": false,
+                                        "analyzedEmails": [
+                                            {
+                                                "networkMessageId": "@item()?['NetworkMessageId']",
+                                                "recipientEmailAddress": "@item()?['RecipientEmailAddress']"
+                                            }
+                                        ]
+                                    },
+                                    "authentication": {
+                                        "type": "ActiveDirectoryOAuth",
+                                        "authority": "https://login.microsoftonline.com",
+                                        "tenant": "",
+                                        "audience": "https://graph.microsoft.com",
+                                        "clientId": "",
+                                        "secret": ""
+                                    }
+                                },
+                                "runtimeConfiguration": {
+                                    "contentTransfer": {
+                                        "transferMode": "Chunked"
+                                    }
+                                }
+                            },
+                            "Condition_1-copy": {
+                                "type": "If",
+                                "expression": {
+                                    "and": [
+                                        {
+                                            "equals": [
+                                                "@outputs('HTTP-copy')?['statusCode']",
+                                                202
+                                            ]
+                                        }
+                                    ]
+                                },
+                                "actions": {},
+                                "else": {
+                                    "actions": {}
+                                },
+                                "runAfter": {
+                                    "HTTP-copy": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            }
+                        },
+                        "runAfter": {
+                            "Run_query_and_list_results_V2_1": [
+                                "Succeeded"
+                            ]
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Entities_-_Get_Accounts": [
+                        "Succeeded"
+                    ]
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "azuresentinel": {
+                    "id": "/subscriptions//providers/Microsoft.Web/locations/eastus/managedApis/azuresentinel",
+                    "connectionId": "/subscriptions//resourceGroups/.../providers/Microsoft.Web/connections/azuresentinel-TI_Map_Sender_Domain_Block",
+                    "connectionName": "azuresentinel-TI_Map_Sender_Domain_Block",
+                    "connectionProperties": {
+                        "authentication": {
+                            "type": "ManagedServiceIdentity"
+                        }
+                    }
+                },
+                "azuresentinel-1": {
+                    "id": "",
+                    "connectionId": "",
+                    "connectionName": "",
+                    "connectionProperties": {}
+                },
+                "azuremonitorlogs-1": {
+                    "id": "",
+                    "connectionId": "",
+                    "connectionName": "",
+                    "connectionProperties": {}
+                }
+            }
+        }
+    }
+}
