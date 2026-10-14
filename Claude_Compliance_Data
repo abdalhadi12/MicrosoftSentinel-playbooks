@@ -1,0 +1,560 @@
+{
+    "definition": {
+        "metadata": {
+            "notes": {}
+        },
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "Recurrence": {
+                "type": "Recurrence",
+                "recurrence": {
+                    "interval": 5,
+                    "frequency": "Minute",
+                    "timeZone": "West Bank Standard Time"
+                }
+            }
+        },
+        "actions": {
+            "Get_secret": {
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['keyvault-2']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/secrets/@{encodeURIComponent('')}/value"
+                },
+                "runAfter": {},
+                "runtimeConfiguration": {
+                    "secureData": {
+                        "properties": [
+                            "inputs",
+                            "outputs"
+                        ]
+                    }
+                }
+            },
+            "Get_blob_content_(V2)": {
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azureblob-2']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files/@{encodeURIComponent(encodeURIComponent(''))}/content",
+                    "queries": {
+                        "inferContentType": true
+                    }
+                },
+                "runAfter": {
+                    "Get_secret": [
+                        "Succeeded"
+                    ]
+                },
+                "metadata": {
+                    "": "/.../cursor.json"
+                }
+            },
+            "Initialize_variables": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "Cursor",
+                            "type": "string"
+                        },
+                        {
+                            "name": "Data_Array",
+                            "type": "array"
+                        },
+                        {
+                            "name": "Output_Array",
+                            "type": "array"
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Get_blob_content_(V2)": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Condition_1": {
+                "type": "If",
+                "expression": {
+                    "and": [
+                        {
+                            "equals": [
+                                "@length(variables('Cursor'))",
+                                0
+                            ]
+                        }
+                    ]
+                },
+                "actions": {
+                    "HTTP": {
+                        "type": "Http",
+                        "inputs": {
+                            "uri": "https://api.anthropic.com/v1/compliance/activities?limit=5000",
+                            "method": "GET",
+                            "headers": {
+                                "x-api-key": "@{body('Get_secret')?['value']}",
+                                "anthropic-version": "2023-06-01"
+                            }
+                        },
+                        "runtimeConfiguration": {
+                            "contentTransfer": {
+                                "transferMode": "Chunked"
+                            }
+                        }
+                    },
+                    "Update_blob_(V2)_1": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['azureblob']['connectionId']"
+                                }
+                            },
+                            "method": "put",
+                            "body": "{\"first_id\":\"@{body('HTTP')?['first_id']}\",\"last_id\":\"@{body('HTTP')?['last_id']}\"}",
+                            "headers": {
+                                "ReadFileMetadataFromServer": true
+                            },
+                            "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files/@{encodeURIComponent(encodeURIComponent('/..../cursor.json'))}"
+                        },
+                        "runAfter": {
+                            "Set_variable_1": [
+                                "Succeeded"
+                            ]
+                        }
+                    },
+                    "Select_1": {
+                        "type": "Select",
+                        "inputs": {
+                            "from": "@body('HTTP')['data']",
+                            "select": {
+                                "action_type": "@item()?['type']",
+                                "actor": "@item()?['actor']",
+                                "claude_artifact_id": "@item()?['claude_artifact_id']",
+                                "claude_chat_id": "@item()?['claude_chat_id']",
+                                "claude_file_id": "@item()?['claude_file_id']",
+                                "claude_project_id": "@item()?['claude_project_id']",
+                                "created_at": "@item()?['created_at']",
+                                "filename": "@item()?['filename']",
+                                "id": "@item()?['id']",
+                                "organization_id": "@item()?['organization_id']",
+                                "organization_uuid": "@item()?['organization_uuid']",
+                                "request_body": "@item()?['request_body']",
+                                "request_id": "@item()?['request_id']",
+                                "request_method": "@item()?['request_method']",
+                                "status_code": "@item()?['status_code']",
+                                "TimeGenerated": "@item()?['created_at']",
+                                "url": "@item()?['url']"
+                            }
+                        },
+                        "runAfter": {
+                            "Update_blob_(V2)_1": [
+                                "Succeeded"
+                            ]
+                        }
+                    },
+                    "Set_variable_1": {
+                        "type": "SetVariable",
+                        "inputs": {
+                            "name": "Cursor",
+                            "value": "@body('HTTP')?['first_id']"
+                        },
+                        "runAfter": {
+                            "HTTP": [
+                                "Succeeded"
+                            ]
+                        }
+                    },
+                    "Set_variable_5": {
+                        "type": "SetVariable",
+                        "inputs": {
+                            "name": "Data_Array",
+                            "value": "@body('Select_1')"
+                        },
+                        "runAfter": {
+                            "Select_1": [
+                                "Succeeded"
+                            ]
+                        }
+                    }
+                },
+                "else": {
+                    "actions": {
+                        "HTTP_1": {
+                            "type": "Http",
+                            "inputs": {
+                                "uri": "https://api.anthropic.com/v1/compliance/activities?limit=5000&before_id=@{variables('Cursor')}",
+                                "method": "GET",
+                                "headers": {
+                                    "x-api-key": "@{body('Get_secret')?['value']}",
+                                    "anthropic-version": "2023-06-01"
+                                }
+                            },
+                            "runtimeConfiguration": {
+                                "contentTransfer": {
+                                    "transferMode": "Chunked"
+                                }
+                            }
+                        },
+                        "Update_blob_(V2)_2": {
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azureblob']['connectionId']"
+                                    }
+                                },
+                                "method": "put",
+                                "body": "{\"first_id\":\"@{body('HTTP_1')?['first_id']}\",\"last_id\":\"@{body('HTTP_1')?['last_id']}\"}",
+                                "headers": {
+                                    "ReadFileMetadataFromServer": true
+                                },
+                                "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files/@{encodeURIComponent(encodeURIComponent('/...e/cursor.json'))}"
+                            },
+                            "runAfter": {
+                                "HTTP_1": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "Select_1-copy": {
+                            "type": "Select",
+                            "inputs": {
+                                "from": "@body('HTTP_1')?['data']",
+                                "select": {
+                                    "action_type": "@item()?['type']",
+                                    "actor": "@item()?['actor']",
+                                    "claude_artifact_id": "@item()?['claude_artifact_id']",
+                                    "claude_chat_id": "@item()?['claude_chat_id']",
+                                    "claude_file_id": "@item()?['claude_file_id']",
+                                    "claude_project_id": "@item()?['claude_project_id']",
+                                    "created_at": "@item()?['created_at']",
+                                    "filename": "@item()?['filename']",
+                                    "id": "@item()?['id']",
+                                    "organization_id": "@item()?['organization_id']",
+                                    "organization_uuid": "@item()?['organization_uuid']",
+                                    "request_body": "@item()?['request_body']",
+                                    "request_id": "@item()?['request_id']",
+                                    "request_method": "@item()?['request_method']",
+                                    "status_code": "@item()?['status_code']",
+                                    "TimeGenerated": "@item()?['created_at']",
+                                    "url": "@item()?['url']"
+                                }
+                            },
+                            "runAfter": {
+                                "Set_variable_2": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "Set_variable_2": {
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "Cursor",
+                                "value": "@body('HTTP_1')?['first_id']"
+                            },
+                            "runAfter": {
+                                "Update_blob_(V2)_2": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "Set_variable_3": {
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "Data_Array",
+                                "value": "@body('Select_1-copy')"
+                            },
+                            "runAfter": {
+                                "Select_1-copy": [
+                                    "Succeeded"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Set_variable": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Set_variable": {
+                "type": "SetVariable",
+                "inputs": {
+                    "name": "Cursor",
+                    "value": "@json(body('Get_blob_content_(V2)'))?['first_id']"
+                },
+                "runAfter": {
+                    "Initialize_variables": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Condition_2": {
+                "type": "If",
+                "expression": {
+                    "or": [
+                        {
+                            "equals": [
+                                "@body('HTTP')?['has_more']",
+                                "@false"
+                            ]
+                        },
+                        {
+                            "equals": [
+                                "@body('HTTP_1')?['has_more']",
+                                "@false"
+                            ]
+                        }
+                    ]
+                },
+                "actions": {
+                    "HTTP_2-copy_1": {
+                        "type": "Http",
+                        "inputs": {
+                            "uri": "",
+                            "method": "POST",
+                            "headers": {
+                                "Content-Type": "application/json"
+                            },
+                            "body": "@variables('Data_Array')",
+                            "authentication": {
+                                "type": "ManagedServiceIdentity",
+                                "audience": "https://monitor.azure.com"
+                            }
+                        },
+                        "runtimeConfiguration": {
+                            "contentTransfer": {
+                                "transferMode": "Chunked"
+                            }
+                        }
+                    }
+                },
+                "else": {
+                    "actions": {
+                        "Until-copy": {
+                            "type": "Until",
+                            "expression": "@equals(body('HTTP_3')?['has_more'], false)",
+                            "limit": {
+                                "timeout": "PT1H"
+                            },
+                            "actions": {
+                                "HTTP_3": {
+                                    "type": "Http",
+                                    "inputs": {
+                                        "uri": "https://api.anthropic.com/v1/compliance/activities?limit=5000&before_id=@{variables('Cursor')}",
+                                        "method": "GET",
+                                        "headers": {
+                                            "x-api-key": "@{body('Get_secret')?['value']}",
+                                            "anthropic-version": "2023-06-01"
+                                        }
+                                    },
+                                    "runtimeConfiguration": {
+                                        "contentTransfer": {
+                                            "transferMode": "Chunked"
+                                        }
+                                    }
+                                },
+                                "Set_variable_4": {
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "Cursor",
+                                        "value": "@body('HTTP_3')?['first_id']"
+                                    },
+                                    "runAfter": {
+                                        "HTTP_3": [
+                                            "Succeeded"
+                                        ]
+                                    }
+                                },
+                                "Condition": {
+                                    "type": "If",
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "greater": [
+                                                    "@length(variables('Cursor'))",
+                                                    0
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "actions": {
+                                        "Update_blob_(V2)_3": {
+                                            "type": "ApiConnection",
+                                            "inputs": {
+                                                "host": {
+                                                    "connection": {
+                                                        "name": "@parameters('$connections')['azureblob-1']['connectionId']"
+                                                    }
+                                                },
+                                                "method": "put",
+                                                "body": "{\"first_id\":\"@{body('HTTP_3')?['first_id']}\",\"last_id\":\"@{body('HTTP_3')?['last_id']}\"}",
+                                                "headers": {
+                                                    "ReadFileMetadataFromServer": true
+                                                },
+                                                "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files/@{encodeURIComponent(encodeURIComponent('/.../cursor.json'))}"
+                                            }
+                                        }
+                                    },
+                                    "else": {
+                                        "actions": {}
+                                    },
+                                    "runAfter": {
+                                        "Set_variable_4": [
+                                            "Succeeded"
+                                        ]
+                                    }
+                                },
+                                "Set_variable_6": {
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "Output_Array",
+                                        "value": "@union(variables('Data_Array'),body('Select_1-copy-copy_1'))"
+                                    },
+                                    "runAfter": {
+                                        "Select_1-copy-copy_1": [
+                                            "Succeeded"
+                                        ]
+                                    }
+                                },
+                                "Select_1-copy-copy_1": {
+                                    "type": "Select",
+                                    "inputs": {
+                                        "from": "@body('HTTP_3')?['data']",
+                                        "select": {
+                                            "action_type": "@item()?['type']",
+                                            "actor": "@item()?['actor']",
+                                            "claude_artifact_id": "@item()?['claude_artifact_id']",
+                                            "claude_chat_id": "@item()?['claude_chat_id']",
+                                            "claude_file_id": "@item()?['claude_file_id']",
+                                            "claude_project_id": "@item()?['claude_project_id']",
+                                            "created_at": "@item()?['created_at']",
+                                            "filename": "@item()?['filename']",
+                                            "id": "@item()?['id']",
+                                            "organization_id": "@item()?['organization_id']",
+                                            "organization_uuid": "@item()?['organization_uuid']",
+                                            "request_body": "@item()?['request_body']",
+                                            "request_id": "@item()?['request_id']",
+                                            "request_method": "@item()?['request_method']",
+                                            "status_code": "@item()?['status_code']",
+                                            "TimeGenerated": "@item()?['created_at']",
+                                            "url": "@item()?['url']"
+                                        }
+                                    },
+                                    "runAfter": {
+                                        "Condition": [
+                                            "Succeeded"
+                                        ]
+                                    }
+                                },
+                                "Set_variable_7": {
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "Data_Array",
+                                        "value": "@variables('Output_Array')"
+                                    },
+                                    "runAfter": {
+                                        "Set_variable_6": [
+                                            "Succeeded"
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                        "For_each": {
+                            "type": "Foreach",
+                            "foreach": "@variables('Data_Array')",
+                            "actions": {
+                                "HTTP_2-copy": {
+                                    "type": "Http",
+                                    "inputs": {
+                                        "uri": "",
+                                        "method": "POST",
+                                        "headers": {
+                                            "Content-Type": "application/json"
+                                        },
+                                        "body": "@createArray(item())",
+                                        "authentication": {
+                                            "type": "ManagedServiceIdentity",
+                                            "audience": "https://monitor.azure.com"
+                                        }
+                                    },
+                                    "runtimeConfiguration": {
+                                        "contentTransfer": {
+                                            "transferMode": "Chunked"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Until-copy": [
+                                    "Succeeded"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Condition_1": [
+                        "Succeeded"
+                    ]
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "keyvault-2": {
+                    "id": "/subscriptions//providers/Microsoft.Web/locations//managedApis/keyvault",
+                    "connectionId": "/subscriptions//resourceGroups//providers/Microsoft.Web/connections/keyvault-2",
+                    "connectionName": "keyvault-2",
+                    "connectionProperties": {
+                        "authentication": {
+                            "type": "ManagedServiceIdentity"
+                        }
+                    }
+                },
+                "azureblob-2": {
+                    "id": "/subscriptions//providers/Microsoft.Web/locations//managedApis/azureblob",
+                    "connectionId": "/subscriptions//resourceGroups//providers/Microsoft.Web/connections/azureblob-4",
+                    "connectionName": "azureblob-4",
+                    "connectionProperties": {}
+                },
+                "azureblob": {
+                    "id": "/subscriptions//providers/Microsoft.Web/locations//managedApis/azureblob",
+                    "connectionId": "/subscriptions//resourceGroups//providers/Microsoft.Web/connections/azureblob-4",
+                    "connectionName": "azureblob-4",
+                    "connectionProperties": {}
+                },
+                "azureblob-1": {
+                    "id": "/subscriptions//providers/Microsoft.Web/locations//managedApis/azureblob",
+                    "connectionId": "/subscriptions//resourceGroups//providers/Microsoft.Web/connections/azureblob-4",
+                    "connectionName": "azureblob-4",
+                    "connectionProperties": {}
+                }
+            }
+        }
+    }
+}
