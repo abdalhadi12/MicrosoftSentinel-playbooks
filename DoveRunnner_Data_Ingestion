@@ -1,0 +1,728 @@
+{
+    "definition": {
+        "metadata": {
+            "notes": {}
+        },
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "Recurrence": {
+                "type": "Recurrence",
+                "recurrence": {
+                    "interval": 10,
+                    "frequency": "Minute",
+                    "timeZone": "West Bank Standard Time"
+                }
+            }
+        },
+        "actions": {
+            "aos": {
+                "type": "Query",
+                "inputs": {
+                    "from": "@variables('AllObjects')",
+                    "where": "@startsWith(item()?['key'], 'aos_logs/')"
+                },
+                "runAfter": {
+                    "Until": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "ios": {
+                "type": "Query",
+                "inputs": {
+                    "from": "@variables('AllObjects')",
+                    "where": "@startsWith(item()?['key'], 'ios_logs/')"
+                },
+                "runAfter": {
+                    "aos": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Compose1": {
+                "type": "Compose",
+                "inputs": "@sort(body('aos'), 'lastChangedTime')",
+                "runAfter": {
+                    "ios": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Compose2": {
+                "type": "Compose",
+                "inputs": "@sort(body('ios'),'lastChangedTime')",
+                "runAfter": {
+                    "Compose1": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Most_Recent_aos_File": {
+                "type": "Compose",
+                "inputs": "@last(outputs('Compose1'))",
+                "runAfter": {
+                    "Compose2": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Most_Recent_ios_File": {
+                "type": "Compose",
+                "inputs": "@last(outputs('Compose2'))",
+                "runAfter": {
+                    "Most_Recent_aos_File": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Condition": {
+                "type": "If",
+                "expression": {
+                    "and": [
+                        {
+                            "not": {
+                                "equals": [
+                                    "@outputs('Most_Recent_aos_File')",
+                                    "@null"
+                                ]
+                            }
+                        },
+                        {
+                            "greaterOrEquals": [
+                                "",
+                                ""
+                            ]
+                        }
+                    ]
+                },
+                "actions": {
+                    "Condition_2": {
+                        "type": "If",
+                        "expression": {
+                            "and": [
+                                {
+                                    "greaterOrEquals": [
+                                        "@outputs('Most_Recent_aos_File')?['lastChangedTime']",
+                                        "@addMinutes(utcNow(),-10)"
+                                    ]
+                                }
+                            ]
+                        },
+                        "actions": {
+                            "Get_aos_Recent_File_Content": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['amazons3bucket-1']['connectionId']"
+                                        }
+                                    },
+                                    "method": "get",
+                                    "path": "/aws/s3/@{encodeURIComponent('')}/@{encodeURIComponent('')}/@{encodeURIComponent(outputs('Most_Recent_aos_File')?['key'])}"
+                                }
+                            },
+                            "Decode_AOS_Content": {
+                                "type": "Compose",
+                                "inputs": "@base64ToString(body('Get_aos_Recent_File_Content')?['$content'])",
+                                "runAfter": {
+                                    "Get_aos_Recent_File_Content": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "start_position": {
+                                "type": "Compose",
+                                "inputs": "@add(indexOf(outputs('Decode_AOS_Content'), '.json'), length('.json'))",
+                                "runAfter": {
+                                    "Decode_AOS_Content": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Compose_AfterFilename": {
+                                "type": "Compose",
+                                "inputs": "@substring(outputs('Decode_AOS_Content'), outputs('start_position'))",
+                                "runAfter": {
+                                    "start_position": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Compose_EndPos": {
+                                "type": "Compose",
+                                "inputs": "@add(indexOf(outputs('Compose_AfterFilename'), ']PK'), 1)",
+                                "runAfter": {
+                                    "Compose_AfterFilename": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Compose_JsonText": {
+                                "type": "Compose",
+                                "inputs": "@substring(outputs('Compose_AfterFilename'), 0, outputs('Compose_EndPos'))",
+                                "runAfter": {
+                                    "Compose_EndPos": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Compose_final": {
+                                "type": "Compose",
+                                "inputs": "@json(outputs('Compose_JsonText'))",
+                                "runAfter": {
+                                    "Compose_JsonText": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "For_each": {
+                                "type": "Foreach",
+                                "foreach": "@variables('FinalAosArray')",
+                                "actions": {
+                                    "HTTP": {
+                                        "type": "Http",
+                                        "inputs": {
+                                            "uri": "",
+                                            "method": "POST",
+                                            "headers": {
+                                                "Content-Type": "application/json"
+                                            },
+                                            "body": "@createArray(item())",
+                                            "authentication": {
+                                                "type": "ManagedServiceIdentity",
+                                                "audience": "https://monitor.azure.com"
+                                            }
+                                        },
+                                        "runtimeConfiguration": {
+                                            "contentTransfer": {
+                                                "transferMode": "Chunked"
+                                            }
+                                        }
+                                    }
+                                },
+                                "runAfter": {
+                                    "Set_variable_7": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Set_variable_7": {
+                                "type": "SetVariable",
+                                "inputs": {
+                                    "name": "FinalAosArray",
+                                    "value": "@body('Select')"
+                                },
+                                "runAfter": {
+                                    "Select": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Select": {
+                                "type": "Select",
+                                "inputs": {
+                                    "from": "@outputs('Compose_final')",
+                                    "select": {
+                                        "msg": "@item()?['msg']",
+                                        "SOC_MANUFACTURER": "@item()?['SOC_MANUFACTURER']",
+                                        "country": "@item()?['country']",
+                                        "rooting": "@item()?['rooting']",
+                                        "device_model": "@item()?['device_model']",
+                                        "transId": "@item()?['transId']",
+                                        "service_version": "@item()?['service_version']",
+                                        "manufacturer": "@item()?['manufacturer']",
+                                        "instruction_set": "@item()?['instruction_set']",
+                                        "checkerCode": "@item()?['checkerCode']",
+                                        "ejs_h5_ver": "@item()?['ejs_h5_ver']",
+                                        "cpu_abi": "@item()?['cpu_abi']",
+                                        "app_version_code": "@item()?['app_version_code']",
+                                        "emul_name": "@item()?['emul_name']",
+                                        "android_raw_id": "@item()?['android_raw_id']",
+                                        "riskScore": "@item()?['riskScore']",
+                                        "reportOnly": "@item()?['reportOnly']",
+                                        "cpu_abi2": "@item()?['cpu_abi2']",
+                                        "SOC_MODEL": "@item()?['SOC_MODEL']",
+                                        "register_datetime": "@item()?['register_datetime']",
+                                        "toolName": "@item()?['toolName']",
+                                        "houdini_system": "@item()?['houdini_system']",
+                                        "os_version": "@item()?['os_version']",
+                                        "sealing_mode": "@item()?['sealing_mode']",
+                                        "message_id": "@item()?['message_id']",
+                                        "core_version": "@item()?['core_version']",
+                                        "has_as_react_native": "@item()?['has_as_react_native']",
+                                        "sdk_hybrid_ver": "@item()?['sdk_hybrid_ver']",
+                                        "has_as_webview": "@item()?['has_as_webview']",
+                                        "package_name": "@item()?['package_name']",
+                                        "error_code": "@item()?['error_code']",
+                                        "dexLoadedTimeFromLaunch": "@item()?['dexLoadedTimeFromLaunch']",
+                                        "wifi_security_protocol": "@item()?['wifi_security_protocol']",
+                                        "app_version_name": "@item()?['app_version_name']",
+                                        "kernel_ver": "@item()?['kernel_ver']",
+                                        "emul_detect": "@item()?['emul_detect']",
+                                        "hackingDetectedTimeFromLaunch": "@item()?['hackingDetectedTimeFromLaunch']",
+                                        "device_uuid": "@item()?['device_uuid']",
+                                        "Emulator_Version": "@item()?['Emulator_Version']",
+                                        "app_name": "@item()?['app_name']",
+                                        "bundle_id": "@item()?['bundle_id']",
+                                        "sdk_version": "@item()?['sdk_version']",
+                                        "customMetadata": "@item()?['customMetadata']",
+                                        "jailbreak": "@item()?['jailbreak']"
+                                    }
+                                },
+                                "runAfter": {
+                                    "Compose_final": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            }
+                        },
+                        "else": {
+                            "actions": {}
+                        }
+                    }
+                },
+                "else": {
+                    "actions": {}
+                },
+                "runAfter": {
+                    "Most_Recent_ios_File": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Condition_1": {
+                "type": "If",
+                "expression": {
+                    "and": [
+                        {
+                            "not": {
+                                "equals": [
+                                    "@outputs('Most_Recent_ios_File')",
+                                    "@null"
+                                ]
+                            }
+                        },
+                        {
+                            "less": [
+                                "",
+                                ""
+                            ]
+                        }
+                    ]
+                },
+                "actions": {
+                    "Condition_3": {
+                        "type": "If",
+                        "expression": {
+                            "and": [
+                                {
+                                    "greaterOrEquals": [
+                                        "@outputs('Most_Recent_ios_File')?['lastChangedTime']",
+                                        "@addMinutes(utcNow(),-10)"
+                                    ]
+                                }
+                            ]
+                        },
+                        "actions": {
+                            "Get_ios_Recent_Files_Content": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['amazons3bucket-1']['connectionId']"
+                                        }
+                                    },
+                                    "method": "get",
+                                    "path": "/aws/s3/@{encodeURIComponent('')}/@{encodeURIComponent('')}/@{encodeURIComponent(outputs('Most_Recent_ios_File')?['key'])}"
+                                }
+                            },
+                            "Decode_IOS_Content": {
+                                "type": "Compose",
+                                "inputs": "@base64ToString(body('Get_ios_Recent_Files_Content')?['$content'])",
+                                "runAfter": {
+                                    "Get_ios_Recent_Files_Content": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "start_position-copy": {
+                                "type": "Compose",
+                                "inputs": "@add(indexOf(outputs('Decode_IOS_Content'), '.json'), length('.json'))",
+                                "runAfter": {
+                                    "Decode_IOS_Content": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Compose_AfterFilename-copy": {
+                                "type": "Compose",
+                                "inputs": "@substring(outputs('Decode_IOS_Content'), outputs('start_position-copy'))",
+                                "runAfter": {
+                                    "start_position-copy": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Compose_EndPos-copy": {
+                                "type": "Compose",
+                                "inputs": "@add(indexOf(outputs('Compose_AfterFilename-copy'), ']PK'), 1)",
+                                "runAfter": {
+                                    "Compose_AfterFilename-copy": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Compose_JsonText-copy": {
+                                "type": "Compose",
+                                "inputs": "@substring(outputs('Compose_AfterFilename-copy'), 0, outputs('Compose_EndPos-copy'))",
+                                "runAfter": {
+                                    "Compose_EndPos-copy": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Compose_final-copy": {
+                                "type": "Compose",
+                                "inputs": "@json(outputs('Compose_JsonText-copy'))",
+                                "runAfter": {
+                                    "Compose_JsonText-copy": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "For_each_1": {
+                                "type": "Foreach",
+                                "foreach": "@variables('FinalIosArray')",
+                                "actions": {
+                                    "HTTP-copy": {
+                                        "type": "Http",
+                                        "inputs": {
+                                            "uri": "",
+                                            "method": "POST",
+                                            "headers": {
+                                                "Content-Type": "application/json"
+                                            },
+                                            "body": "@createArray(item())",
+                                            "authentication": {
+                                                "type": "ManagedServiceIdentity",
+                                                "audience": "https://monitor.azure.com"
+                                            }
+                                        },
+                                        "runtimeConfiguration": {
+                                            "contentTransfer": {
+                                                "transferMode": "Chunked"
+                                            }
+                                        }
+                                    }
+                                },
+                                "runAfter": {
+                                    "Set_variable": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Set_variable": {
+                                "type": "SetVariable",
+                                "inputs": {
+                                    "name": "FinalIosArray",
+                                    "value": "@body('Select_1')"
+                                },
+                                "runAfter": {
+                                    "Select_1": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            },
+                            "Select_1": {
+                                "type": "Select",
+                                "inputs": {
+                                    "from": "@outputs('Compose_final-copy')",
+                                    "select": {
+                                        "msg": "@item()?['msg']",
+                                        "SOC_MANUFACTURER": "@item()?['SOC_MANUFACTURER']",
+                                        "country": "@item()?['country']",
+                                        "rooting": "@item()?['rooting']",
+                                        "device_model": "@item()?['device_model']",
+                                        "transId": "@item()?['transId']",
+                                        "service_version": "@item()?['service_version']",
+                                        "manufacturer": "@item()?['manufacturer']",
+                                        "instruction_set": "@item()?['instruction_set']",
+                                        "checkerCode": "@item()?['checkerCode']",
+                                        "ejs_h5_ver": "@item()?['ejs_h5_ver']",
+                                        "cpu_abi": "@item()?['cpu_abi']",
+                                        "app_version_code": "@item()?['app_version_code']",
+                                        "emul_name": "@item()?['emul_name']",
+                                        "android_raw_id": "@item()?['android_raw_id']",
+                                        "riskScore": "@item()?['riskScore']",
+                                        "reportOnly": "@item()?['reportOnly']",
+                                        "cpu_abi2": "@item()?['cpu_abi2']",
+                                        "SOC_MODEL": "@item()?['SOC_MODEL']",
+                                        "register_datetime": "@item()?['register_datetime']",
+                                        "toolName": "@item()?['toolName']",
+                                        "houdini_system": "@item()?['houdini_system']",
+                                        "os_version": "@item()?['os_version']",
+                                        "sealing_mode": "@item()?['sealing_mode']",
+                                        "message_id": "@item()?['message_id']",
+                                        "core_version": "@item()?['core_version']",
+                                        "has_as_react_native": "@item()?['has_as_react_native']",
+                                        "sdk_hybrid_ver": "@item()?['sdk_hybrid_ver']",
+                                        "has_as_webview": "@item()?['has_as_webview']",
+                                        "package_name": "@item()?['package_name']",
+                                        "error_code": "@item()?['error_code']",
+                                        "dexLoadedTimeFromLaunch": "@item()?['dexLoadedTimeFromLaunch']",
+                                        "wifi_security_protocol": "@item()?['wifi_security_protocol']",
+                                        "app_version_name": "@item()?['app_version_name']",
+                                        "kernel_ver": "@item()?['kernel_ver']",
+                                        "emul_detect": "@item()?['emul_detect']",
+                                        "hackingDetectedTimeFromLaunch": "@item()?['hackingDetectedTimeFromLaunch']",
+                                        "device_uuid": "@item()?['device_uuid']",
+                                        "Emulator_Version": "@item()?['Emulator_Version']",
+                                        "app_name": "@item()?['app_name']",
+                                        "bundle_id": "@item()?['bundle_id']",
+                                        "sdk_version": "@item()?['sdk_version']",
+                                        "customMetadata": "@item()?['customMetadata']",
+                                        "jailbreak": "@item()?['jailbreak']"
+                                    }
+                                },
+                                "runAfter": {
+                                    "Compose_final-copy": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            }
+                        },
+                        "else": {
+                            "actions": {}
+                        }
+                    }
+                },
+                "else": {
+                    "actions": {}
+                },
+                "runAfter": {
+                    "Condition": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Initialize_variables": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "AllObjects",
+                            "type": "array"
+                        },
+                        {
+                            "name": "ContinuationToken",
+                            "type": "string"
+                        },
+                        {
+                            "name": "ValuesArray",
+                            "type": "array"
+                        },
+                        {
+                            "name": "FinalAosArray",
+                            "type": "array"
+                        },
+                        {
+                            "name": "FinalIosArray",
+                            "type": "array"
+                        }
+                    ]
+                },
+                "runAfter": {}
+            },
+            "Until": {
+                "type": "Until",
+                "expression": "@equals(variables('ContinuationToken'), string(''))",
+                "limit": {
+                    "timeout": "PT1H"
+                },
+                "actions": {
+                    "List_S3_objects": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['amazons3']['connectionId']"
+                                }
+                            },
+                            "method": "get",
+                            "path": "/buckets/objects",
+                            "queries": {
+                                "bucketName": "",
+                                "continuationToken": "@variables('ContinuationToken')"
+                            }
+                        }
+                    },
+                    "Set_variable_2": {
+                        "type": "SetVariable",
+                        "inputs": {
+                            "name": "ContinuationToken",
+                            "value": "@body('List_S3_objects')?['continuationToken']"
+                        },
+                        "runAfter": {
+                            "Set_variable_6": [
+                                "Succeeded"
+                            ]
+                        }
+                    },
+                    "Select_4": {
+                        "type": "Select",
+                        "inputs": {
+                            "from": "@body('List_S3_objects')?['value']",
+                            "select": {
+                                "key": "@item()?['key']",
+                                "eTag": "@item()?['eTag']",
+                                "size": "@item()?['size']",
+                                "lastChangedTime": "@item()?['lastChangedTime']"
+                            }
+                        },
+                        "runAfter": {
+                            "List_S3_objects": [
+                                "Succeeded"
+                            ]
+                        }
+                    },
+                    "Set_variable_5": {
+                        "type": "SetVariable",
+                        "inputs": {
+                            "name": "ValuesArray",
+                            "value": "@union(variables('AllObjects'),body('Select_4'))"
+                        },
+                        "runAfter": {
+                            "Select_4": [
+                                "Succeeded"
+                            ]
+                        }
+                    },
+                    "Set_variable_6": {
+                        "type": "SetVariable",
+                        "inputs": {
+                            "name": "AllObjects",
+                            "value": "@variables('ValuesArray')"
+                        },
+                        "runAfter": {
+                            "Set_variable_5": [
+                                "Succeeded"
+                            ]
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Set_variable_4": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Set_variable_1": {
+                "type": "SetVariable",
+                "inputs": {
+                    "name": "ContinuationToken",
+                    "value": "@string('')"
+                },
+                "runAfter": {
+                    "Initialize_variables": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "List_S3_objects_1": {
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['amazons3-1']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/buckets/objects",
+                    "queries": {
+                        "bucketName": "",
+                        "continuationToken": "@variables('ContinuationToken')"
+                    }
+                },
+                "runAfter": {
+                    "Set_variable_1": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Select_3": {
+                "type": "Select",
+                "inputs": {
+                    "from": "@body('List_S3_objects_1')?['value']",
+                    "select": {
+                        "key": "@item()?['key']",
+                        "eTag": "@item()?['eTag']",
+                        "size": "@item()?['size']",
+                        "lastChangedTime": "@item()?['lastChangedTime']"
+                    }
+                },
+                "runAfter": {
+                    "Set_variable_3": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Set_variable_3": {
+                "type": "SetVariable",
+                "inputs": {
+                    "name": "ContinuationToken",
+                    "value": "@body('List_S3_objects_1')?['continuationToken']"
+                },
+                "runAfter": {
+                    "List_S3_objects_1": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Set_variable_4": {
+                "type": "SetVariable",
+                "inputs": {
+                    "name": "AllObjects",
+                    "value": "@body('Select_3')"
+                },
+                "runAfter": {
+                    "Select_3": [
+                        "Succeeded"
+                    ]
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "amazons3bucket-1": {
+                    "id": "/subscriptions//providers/Microsoft.Web/locations//managedApis/amazons3bucket",
+                    "connectionId": "/subscriptions//resourceGroups//providers/Microsoft.Web/connections/amazons3bucket-1",
+                    "connectionName": "amazons3bucket-1",
+                    "connectionProperties": {}
+                },
+                "amazons3": {
+                    "id": "/subscriptions//providers/Microsoft.Web/locations//managedApis/amazons3",
+                    "connectionId": "/subscriptions//resourceGroups//providers/Microsoft.Web/connections/amazons3-2",
+                    "connectionName": "amazons3-2",
+                    "connectionProperties": {}
+                },
+                "amazons3-1": {
+                    "id": "/subscriptions//providers/Microsoft.Web/locations//managedApis/amazons3",
+                    "connectionId": "/subscriptions//resourceGroups/sentinel-rg/providers/Microsoft.Web/connections/amazons3-2",
+                    "connectionName": "amazons3-2",
+                    "connectionProperties": {}
+                }
+            }
+        }
+    }
+}
