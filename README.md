@@ -29,7 +29,7 @@ The Logic App sends HTTP requests using the Claude Compliance API to fetch all e
 
 The ingestion mechanism works as follows: each request fetches one page of Claude Compliance data and returns a continuation token in the response. This token must be stored and used as a header in the playbook’s next trigger to fetch new data from the Claude Compliance API.,
 
-📄 For full configuration details, see [Configuration](./Block_Phishing_Domain)
+📄 For full configuration details, see [Configuration](./Claude_Compliance_Data)
 
 **📘 Doverunner-Integration**
 A Microsoft Sentinel Logic App used to fetch security events from a DoveRunner Amazon S3 bucket.
